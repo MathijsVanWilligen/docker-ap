@@ -54,6 +54,33 @@ wpa_ptk_rekey=600
 ieee80211n=1
 ht_capab=${HT_CAPAB}
 wmm_enabled=1 
+bridge=br0
+EOF
+
+fi
+
+if [ ! -f "/etc/network/interfaces" ] ; then
+    cat > "/etc/network/interfaces" <<EOF
+auto lo
+iface lo inet loopback
+
+# Disable eth0 / wlan0 config, handled by bridge
+auto eth0
+iface eth0 inet manual
+
+allow-hotplug wlan0
+iface wlan0 inet manual
+
+# Create a bridge with static IP
+auto br0
+iface br0 inet static
+        bridge_ports eth0
+        address 192.168.1.13
+        netmask 255.255.255.0
+        network 192.168.1.0
+        broadcast 192.168.1.255
+# Or use dhcp client on bridge
+#iface br0 inet dhcp 
 EOF
 
 fi
@@ -66,7 +93,7 @@ echo "Setting interface ${INTERFACE}"
 # Setup interface and restart DHCP service 
 ip link set ${INTERFACE} up
 ip addr flush dev ${INTERFACE}
-ip addr add ${AP_ADDR}/24 dev ${INTERFACE}
+#ip addr add ${AP_ADDR}/24 dev ${INTERFACE}
 
 # NAT settings
 echo "NAT settings ip_dynaddr, ip_forward"
@@ -81,33 +108,6 @@ done
 
 cat /proc/sys/net/ipv4/ip_dynaddr 
 cat /proc/sys/net/ipv4/ip_forward
-
-if [ "${OUTGOINGS}" ] ; then
-   ints="$(sed 's/,\+/ /g' <<<"${OUTGOINGS}")"
-   for int in ${ints}
-   do
-      echo "Setting iptables for outgoing traffics on ${int}..."
-      iptables -t nat -D POSTROUTING -s ${SUBNET}/24 -o ${int} -j MASQUERADE > /dev/null 2>&1 || true
-      iptables -t nat -A POSTROUTING -s ${SUBNET}/24 -o ${int} -j MASQUERADE
-   done
-else
-   echo "Setting iptables for outgoing traffics on all interfaces..."
-   iptables -t nat -D POSTROUTING -s ${SUBNET}/24 -j MASQUERADE > /dev/null 2>&1 || true
-   iptables -t nat -A POSTROUTING -s ${SUBNET}/24 -j MASQUERADE
-fi
-echo "Configuring DHCP server .."
-
-cat > "/etc/dhcpd.conf" <<EOF
-option domain-name-servers 8.8.8.8, 8.8.4.4;
-option subnet-mask 255.255.255.0;
-option routers ${AP_ADDR};
-subnet ${SUBNET} netmask 255.255.255.0 {
-  range ${SUBNET::-1}100 ${SUBNET::-1}200;
-}
-EOF
-
-echo "Starting DHCP server .."
-dhcpd ${INTERFACE}
 
 echo "Starting HostAP daemon ..."
 /usr/sbin/hostapd /etc/hostapd.conf 
